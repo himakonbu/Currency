@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通貨変換</title>
+<style>
+  :root{
+    --accent:#22c55e; --bg:#f6f7f9; --card:#ffffff; --text:#0f172a; --border:#e5e7eb; --radius:14px;
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;
+    line-height:1.6;
+  }
+  header{position:sticky; top:0; z-index:10; background:#fff; border-bottom:1px solid var(--border)}
+  .header-inner{max-width:960px; margin:0 auto; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px}
+  .title{font-weight:900}
+
+  .wrap{max-width:960px; margin:0 auto; padding:18px 16px 40px}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin:12px 0; box-shadow:0 1px 6px rgba(0,0,0,.04)}
+  .label{font-weight:800; font-size:16px; margin-bottom:8px}
+
+  /* form */
+  input, select, button{font:inherit}
+  input[type="number"], select{
+    width:100%; padding:12px; border:1px solid var(--border); border-radius:12px; background:#fff; box-sizing:border-box;
+  }
+  button.primary{background:var(--accent); color:#fff; border:0; padding:14px 16px; border-radius:12px; font-weight:900; width:100%}
+  button.ghost{background:#ecfdf5; color:#065f46; border:1px dashed #a7f3d0; border-radius:10px; padding:10px 12px; cursor:pointer}
+
+  .row{display:grid; gap:12px}
+  .row-3{grid-template-columns:1fr auto 1fr}
+
+  /* 金額と単位の行：モバイル1列、PCは 1fr / 140px 固定 */
+  .row-amt{grid-template-columns:1fr}
+  @media(min-width:700px){ .row-amt{grid-template-columns:1fr 140px} }
+
+  /* 手動レイアウト切替 */
+  .toggle{display:flex; gap:8px}
+  .toggle button{border:1px solid var(--border); background:#fff; padding:8px 10px; border-radius:10px; cursor:pointer}
+  .toggle button.active{border-color:var(--accent); outline:2px solid color-mix(in srgb, var(--accent) 35%, transparent)}
+  body.layout-mobile .wrap{max-width:440px}
+  body.layout-mobile .row-amt{grid-template-columns:1fr}
+  body.layout-desktop .wrap{max-width:960px}
+  body.layout-desktop .row-amt{grid-template-columns:1fr 140px}
+
+  /* loading bar */
+  .loadingbar{height:6px; overflow:hidden; border-radius:3px; background:#e5e7eb; display:none}
+  .loadingbar>div{height:100%; width:33%; background:var(--accent); transform:translateX(-100%); animation:slide 1.15s linear infinite}
+  @keyframes slide { from{transform:translateX(-100%)} to{transform:translateX(300%)} }
+
+  .swap{display:flex; align-items:center; justify-content:center}
+  .swap button{border:0;background:#ecfdf5;color:#065f46;border-radius:10px;padding:10px; cursor:pointer}
+  .result-jp{font-size:1.35rem; font-weight:900}
+  .result-en{color:#4b5563}
+</style>
+
+<header>
+  <div class="header-inner">
+    <div class="title">通貨変換</div>
+    <div class="toggle">
+      <button id="btnMobile" title="スマホ表示">📱</button>
+      <button id="btnAuto"   title="自動">🔁</button>
+      <button id="btnDesktop" title="デスクトップ表示">🖥️</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div id="loading" class="loadingbar"><div></div></div>
+
+  <section class="card">
+    <div class="label">金額と単位</div>
+    <div class="row row-amt">
+      <input id="amount" type="number" inputmode="decimal" placeholder="金額（例: 100）">
+      <select id="unit" aria-label="単位">
+        <option value="">（なし）</option>
+        <option>万</option><option>億</option><option>兆</option>
+        <option>K</option><option>M</option><option>B</option><option>T</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="label">通貨を選択</div>
+    <div class="row row-3">
+      <select id="from" aria-label="変換元">
+        <option>USD</option><option>JPY</option><option>EUR</option><option>GBP</option>
+        <option>CAD</option><option>HKD</option><option>CNY</option><option>KRW</option>
+      </select>
+      <div class="swap"><button id="swap" title="入れ替え">↔︎</button></div>
+      <select id="to" aria-label="変換先">
+        <option>JPY</option><option>USD</option><option>EUR</option><option>GBP</option>
+        <option>CAD</option><option>HKD</option><option>CNY</option><option>KRW</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row" style="grid-template-columns:auto auto; align-items:center">
+      <div class="label" style="margin:0">レート</div>
+      <button id="refresh" class="ghost" style="justify-self:end">⟳ 更新</button>
+    </div>
+    <div id="rateText" style="font-weight:700">未取得</div>
+    <div id="rateTime" style="color:#6b7280"></div>
+  </section>
+
+  <section class="card">
+    <button id="convert" class="primary">変換</button>
+    <div style="margin-top:12px">
+      <div id="resJP" class="result-jp">結果: -</div>
+      <div id="resEN" class="result-en"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+  // ===== 設定：実験用にキーを直書き（公開時は非推奨） =====
+  const API_KEY = "b83959fae8ef48f560972001";
+
+  const unitsMap = {"":1,"万":1e4,"億":1e8,"兆":1e12,"K":1e3,"M":1e6,"B":1e9,"T":1e12};
+
+  const $amount = document.getElementById('amount');
+  const $unit   = document.getElementById('unit');
+  const $from   = document.getElementById('from');
+  const $to     = document.getElementById('to');
+  const $swap   = document.getElementById('swap');
+  const $refresh= document.getElementById('refresh');
+  const $rateText = document.getElementById('rateText');
+  const $rateTime = document.getElementById('rateTime');
+  const $convert  = document.getElementById('convert');
+  const $loading  = document.getElementById('loading');
+
+  function rateKey(){ return `rate_${$from.value}_${$to.value}` }
+  function dateKey(){ return `rateAt_${$from.value}_${$to.value}` }
+
+  function saveRate(rate){
+    localStorage.setItem(rateKey(), String(rate));
+    const stamp = new Date().toLocaleString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    localStorage.setItem(dateKey(), stamp);
+    paintSaved();
+  }
+  function loadRate(){
+    const r = parseFloat(localStorage.getItem(rateKey()) || "NaN");
+    return Number.isFinite(r) ? r : null;
+  }
+  function paintSaved(){
+    const r = loadRate();
+    const t = localStorage.getItem(dateKey()) || "";
+    if (r!=null){
+      $rateText.textContent = `1 ${$from.value} = ${r.toFixed(4)} ${$to.value}`;
+      $rateTime.textContent = t;
+    } else {
+      $rateText.textContent = "未取得";
+      $rateTime.textContent = "";
+    }
+  }
+
+  function parseAmount(){
+    const base = parseFloat(($amount.value||"").trim());
+    if (!Number.isFinite(base)) return null;
+    return base * (unitsMap[$unit.value] || 1);
+  }
+
+  async function fetchRate(){
+    const from = $from.value, to = $to.value;
+    try{
+      $loading.style.display = "block";
+      const url = `https://v6.exchangerate-api.com/v6/${encodeURIComponent(API_KEY)}/pair/${from}/${to}`;
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      if (j.result!=="success") throw new Error(`API error: ${j.result||"unknown"}`);
+      saveRate(j.conversion_rate);
+    } catch(e){
+      alert(`レート取得エラー: ${e.message||e}`);
+    } finally{
+      $loading.style.display = "none";
+      paintSaved();
+    }
+  }
+
+  function formatJP(num){
+    const abs = Math.abs(num), sign = num<0?"-":"";
+    if (abs>=1e12) return `${sign}${(abs/1e12).toFixed(2)}兆`;
+    if (abs>=1e8)  return `${sign}${(abs/1e8).toFixed(2)}億`;
+    if (abs>=1e4)  return `${sign}${(abs/1e4).toFixed(2)}万`;
+    return `${sign}${abs.toFixed(2)}`;
+  }
+  function formatEN(num){
+    const abs = Math.abs(num), sign = num<0?"-":"";
+    if (abs>=1e12) return `${sign}${(abs/1e12).toFixed(2)}T`;
+    if (abs>=1e9)  return `${sign}${(abs/1e9).toFixed(2)}B`;
+    if (abs>=1e6)  return `${sign}${(abs/1e6).toFixed(2)}M`;
+    if (abs>=1e3)  return `${sign}${(abs/1e3).toFixed(2)}K`;
+    return `${sign}${abs.toFixed(2)}`;
+  }
+
+  function convert(){
+    const amt = parseAmount();
+    if (amt==null){ alert("金額を入力"); return; }
+    const rate = loadRate();
+    if (rate==null){ alert("レート未取得。『更新』してください"); return; }
+    const converted = amt * rate;
+    document.getElementById('resJP').textContent = "結果: " + formatJP(converted);
+    document.getElementById('resEN').textContent = ($unit.value ? formatEN(converted) : "");
+  }
+
+  $refresh.addEventListener('click', fetchRate);
+  $convert.addEventListener('click', convert);
+  $swap.addEventListener('click', ()=>{
+    const a = $from.value; $from.value = $to.value; $to.value = a;
+    localStorage.removeItem(rateKey()); localStorage.removeItem(dateKey());
+    $rateText.textContent = "未取得"; $rateTime.textContent = "";
+    fetchRate();
+  });
+
+  // レイアウト手動切替
+  const btnMobile = document.getElementById('btnMobile');
+  const btnAuto   = document.getElementById('btnAuto');
+  const btnDesktop= document.getElementById('btnDesktop');
+  function setMode(mode){
+    document.body.classList.remove('layout-mobile','layout-desktop');
+    [btnMobile,btnAuto,btnDesktop].forEach(b=>b.classList.remove('active'));
+    if(mode==='mobile'){ document.body.classList.add('layout-mobile'); btnMobile.classList.add('active'); }
+    else if(mode==='desktop'){ document.body.classList.add('layout-desktop'); btnDesktop.classList.add('active'); }
+    else { btnAuto.classList.add('active'); }
+    localStorage.setItem('layoutMode', mode);
+  }
+  btnMobile.addEventListener('click', ()=>setMode('mobile'));
+  btnAuto  .addEventListener('click', ()=>setMode('auto'));
+  btnDesktop.addEventListener('click',()=>setMode('desktop'));
+
+  // 初期描画
+  setMode(localStorage.getItem('layoutMode')||'auto');
+  paintSaved();
+</script>
+</html>
